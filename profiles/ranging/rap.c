@@ -34,12 +34,17 @@
 #include "src/shared/rap.h"
 #include "attrib/att.h"
 #include "src/log.h"
+#include "src/btd.h"
 
+#define USE_BT_HCI_RAW_CHANNEL	1
 struct rap_data {
 	struct btd_device *device;
 	struct btd_service *service;
 	struct bt_rap *rap;
 	unsigned int ready_id;
+#if USE_BT_HCI_RAW_CHANNEL
+	struct bt_hci *hci;
+#endif
 };
 
 static struct queue *sessions;
@@ -95,6 +100,12 @@ static void rap_data_free(struct rap_data *data)
 	}
 
 	bt_rap_ready_unregister(data->rap, data->ready_id);
+#if USE_BT_HCI_RAW_CHANNEL
+	if (data->hci) {
+		bt_rap_hci_sm_cleanup();
+		bt_hci_unref(data->hci);
+	}
+#endif
 	bt_rap_unref(data->rap);
 	free(data);
 }
@@ -194,6 +205,22 @@ static int rap_probe(struct btd_service *service)
 		free(data);
 		return -EINVAL;
 	}
+#if USE_BT_HCI_RAW_CHANNEL
+	int16_t hci_index = btd_adapter_get_index(adapter);
+
+	data->hci = bt_hci_new_raw_device(hci_index);
+	if (bt_rap_attach_hci(data->rap, data->hci)) {
+		DBG("HCI raw channel initialized, hci%d", hci_index);
+		bt_rap_hci_set_le_bcs_options(
+					btd_opts.defaults.bcs.role,
+					btd_opts.defaults.bcs.cs_sync_ant_sel,
+					btd_opts.defaults.bcs.max_tx_power);
+	} else {
+		error("HCI raw channel not available (may be in use)");
+	}
+#else /* USE_BT_HCI_RAW_CHANNEL */
+	DBG("MGMT Events");
+#endif /* USE_BT_HCI_RAW_CHANNEL */
 
 	rap_data_add(data);
 
