@@ -40,6 +40,7 @@
 struct rap_data {
 	struct btd_device *device;
 	struct btd_service *service;
+	struct bt_gatt_server *server;
 	struct bt_rap *rap;
 	unsigned int ready_id;
 #if USE_BT_HCI_RAW_CHANNEL
@@ -196,12 +197,26 @@ static int rap_probe(struct btd_service *service)
 
 	data = rap_data_new(device);
 	data->service = service;
+	data->server = btd_device_get_gatt_server(device);
+	if (!data->server) {
+		error("unable to get GATT server");
+		free(data);
+		return -EINVAL;
+	}
 
 	data->rap = bt_rap_new(btd_gatt_database_get_db(database),
 				btd_device_get_gatt_db(device));
 
+
 	if (!data->rap) {
 		error("unable to create RAP instance");
+		free(data);
+		return -EINVAL;
+	}
+
+	if (!bt_rap_gatt_server_attach(data->rap, data->server)) {
+		error("RAS Server unable to attach");
+		bt_rap_unref(data->rap);
 		free(data);
 		return -EINVAL;
 	}
